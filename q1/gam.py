@@ -89,7 +89,7 @@ def save_gam_results(bmi, gestational_week, y_concentration, bmi_contribution,
 if __name__ == "__main__":
     # 1. 加载数据
     print("正在加载数据...")
-    data = pd.read_csv('data/output.csv')
+    data = pd.read_csv('./data/output.csv')
     
     # 选择需要的列
     selected_data = data[['孕妇BMI', '检测孕周', 'Y染色体浓度']].copy()

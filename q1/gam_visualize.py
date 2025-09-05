@@ -5,10 +5,15 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from scipy.interpolate import UnivariateSpline
+from matplotlib.colors import LinearSegmentedColormap
 
 # 中文字体与负号设置（macOS优先尝试苹方/黑体，回退到常见字体）
 mpl.rcParams['font.sans-serif'] = ['PingFang SC', 'Heiti TC', 'Songti SC', 'STHeiti', 'SimHei', 'Arial Unicode MS', 'sans-serif']
 mpl.rcParams['axes.unicode_minus'] = False
+
+# 定义自定义色系
+CUSTOM_COLORS = ['#845EC2', '#D65DB1', '#FF6F91', '#FF9671', '#FFC75F', '#F9F871']
+CUSTOM_CMAP = LinearSegmentedColormap.from_list('custom', CUSTOM_COLORS, N=256)
 
 
 def build_splines(bmi: np.ndarray, gw: np.ndarray, y: np.ndarray):
@@ -36,7 +41,7 @@ def main():
 
 	fig = plt.figure(figsize=(10, 7))
 	ax = fig.add_subplot(111, projection='3d')
-	surf = ax.plot_surface(BB, GG, Z, cmap='viridis', edgecolor='none', alpha=0.85)
+	surf = ax.plot_surface(BB, GG, Z, cmap=CUSTOM_CMAP, edgecolor='none', alpha=0.85)
 	ax.set_xlabel('BMI')
 	ax.set_ylabel('孕周')
 	ax.set_zlabel('Y染色体浓度')
