@@ -9,6 +9,10 @@ from matplotlib.colors import LinearSegmentedColormap
 import warnings
 warnings.filterwarnings('ignore')
 
+# 设置中文字体支持
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+
 # 中文字体与负号设置（macOS优先尝试苹方/黑体，回退到常见字体）
 mpl.rcParams['font.sans-serif'] = ['PingFang SC', 'Heiti TC', 'Songti SC', 'STHeiti', 'SimHei', 'Arial Unicode MS', 'sans-serif']
 mpl.rcParams['axes.unicode_minus'] = False

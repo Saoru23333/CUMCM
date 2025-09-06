@@ -1,0 +1,4 @@
+﻿bmi_group,optimal_detection_time,optimal_detection_time_days,sample_count,mean_bmi,bmi_range,strategy,min_risk,p_target,coverage_quantile,min_gap_days
+0,16.007518796992482,112.05263157894737,139,30.358866071813935,27.1-32.5,multiobj,,,,6.0
+1,17.050125313283207,119.35087719298245,25,32.90537308813091,32.5-33.3,multiobj,,,,6.0
+2,18.32080200501253,128.24561403508773,77,35.66411205997046,33.4-46.9,multiobj,,,,6.0

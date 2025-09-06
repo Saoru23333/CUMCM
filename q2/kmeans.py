@@ -13,9 +13,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 import os
 
-# 设置中文字体
+# 设置中文字体支持
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
 class BMIKMeansClusterer:
     """

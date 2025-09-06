@@ -78,8 +78,8 @@ def preprocess_data(input_file, output_file):
 
 if __name__ == "__main__":
     # 执行预处理
-    input_file = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/data/output.csv"
-    output_file = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/data/output_processed.csv"
+    input_file = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/data/output1.csv"
+    output_file = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/data/girl_output.csv"
     
     processed_df = preprocess_data(input_file, output_file)
     

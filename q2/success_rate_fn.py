@@ -135,11 +135,15 @@ class SuccessProbabilityCalculator:
         # 孕周依赖方差放大系数：早期更大，随孕周递减至1
         # 参数可调：alpha 控制早期放大量级，scale 控制衰减速度（天）
         # 放大项加入BMI依赖：高BMI早期不确定性更大 → 成功率更低
-        # 温和方差放大（前移设置）：适度降低早期惩罚、稍增强BMI梯度、放缓衰减
-        alpha_base = 0.85
-        alpha_bmi = 0.025 * (bmi - 30.0)  # 略增BMI系数以放大组差
-        alpha = max(0.6, min(1.6, alpha_base + alpha_bmi))
-        scale = 30.0
+        # 非线性BMI差异设置：减少高BMI组的极端影响
+        alpha_base = 0.3  # 保持基础放大系数
+        # 使用非线性函数限制高BMI组的影响
+        bmi_normalized = (bmi - 25.0) / 20.0  # 归一化到[0,1]
+        bmi_normalized = max(0.0, min(1.0, bmi_normalized))
+        # 使用sigmoid函数使BMI影响在中等BMI时达到最大，高BMI时趋于饱和
+        alpha_bmi = 0.060 * (1 / (1 + np.exp(-3.5 * (bmi_normalized - 0.3))))  # 适度非线性BMI影响
+        alpha = max(0.1, min(1.0, alpha_base + alpha_bmi))  # 限制范围
+        scale = 12.0  # 保持快速衰减速度
         multiplier = 1.0 + alpha * np.exp(-(gestational_week - 118.0) / scale)
         multiplier = float(max(1.0, multiplier))  # 不小于1
 
