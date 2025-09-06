@@ -1,0 +1,2 @@
+optimal_f1_threshold,youden_threshold,low_risk_threshold,high_risk_threshold,balanced_threshold,uncertain_interval,decision_rules
+0.63,0.52,0.01,0.98,0.7000000000000001,0.97,"{'high_risk': 'D >= 0.980 -> 高风险异常', 'low_risk': 'D < 0.010 -> 低风险正常', 'uncertain': '0.010 <= D < 0.980 -> 结果不确定，建议复检'}"
