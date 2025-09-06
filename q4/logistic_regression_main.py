@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-第四问：女胎异常判定的鲁棒诊断模型
-基于Instruction.md的思路实现
+第四问：女胎异常判定的鲁棒诊断模型（逻辑回归专用版）
+专注于逻辑回归模型，避免过拟合问题
 """
 
 import pandas as pd
@@ -13,8 +13,8 @@ from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (roc_auc_score, roc_curve, precision_recall_curve, 
-                           classification_report, confusion_matrix, f1_score)
-import xgboost as xgb
+                           classification_report, confusion_matrix, f1_score,
+                           precision_score, recall_score, accuracy_score)
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,8 +22,8 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
-class FemaleFetusDiagnosisModel:
-    """女胎异常判定模型"""
+class LogisticRegressionDiagnosisModel:
+    """逻辑回归专用女胎异常判定模型"""
     
     def __init__(self, data_path, output_path):
         self.data_path = data_path
@@ -33,7 +33,6 @@ class FemaleFetusDiagnosisModel:
         self.y = None
         self.feature_names = None
         self.scaler = StandardScaler()
-        self.xgb_model = None
         self.lr_model = None
         self.cv_results = {}
         
@@ -44,10 +43,8 @@ class FemaleFetusDiagnosisModel:
         
         # 数据基本信息
         print(f"数据形状: {self.data.shape}")
-        print(f"列名: {list(self.data.columns)}")
         
         # 创建标签：染色体的非整倍体 -> 0(正常) 1(异常)
-        # 空白或NaN表示正常，有内容(T21, T18, T13等)表示异常
         self.data['label'] = self.data['染色体的非整倍体'].fillna('').astype(str)
         self.data['label'] = (self.data['label'] != '').astype(int)
         
@@ -84,7 +81,7 @@ class FemaleFetusDiagnosisModel:
         
         # 基础统计
         stats = self.X.describe()
-        stats.to_csv(f"{self.output_path}/feature_statistics.csv")
+        stats.to_csv(f"{self.output_path}/lr_feature_statistics.csv")
         
         # 相关性分析
         corr_matrix = self.X.corr()
@@ -93,7 +90,7 @@ class FemaleFetusDiagnosisModel:
                    square=True, fmt='.2f')
         plt.title('特征相关性热力图')
         plt.tight_layout()
-        plt.savefig(f"{self.output_path}/correlation_heatmap.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{self.output_path}/lr_correlation_heatmap.png", dpi=300, bbox_inches='tight')
         plt.close()
         
         # Z值分布对比
@@ -120,32 +117,19 @@ class FemaleFetusDiagnosisModel:
                     axes[i].grid(True, alpha=0.3)
             
             plt.tight_layout()
-            plt.savefig(f"{self.output_path}/z_value_distribution.png", dpi=300, bbox_inches='tight')
+            plt.savefig(f"{self.output_path}/lr_z_value_distribution.png", dpi=300, bbox_inches='tight')
             plt.close()
         
         print("探索性数据分析完成")
     
-    def train_models(self):
-        """训练模型"""
-        print("\n开始训练模型...")
+    def train_logistic_regression_model(self):
+        """训练逻辑回归模型"""
+        print("\n开始训练逻辑回归模型...")
         
         # 数据标准化
         X_scaled = self.scaler.fit_transform(self.X)
         
-        # 计算类别权重
-        class_weights = len(self.y[self.y == 0]) / len(self.y[self.y == 1])
-        print(f"类别权重 (scale_pos_weight): {class_weights:.2f}")
-        
-        # XGBoost模型
-        print("训练XGBoost模型...")
-        self.xgb_model = xgb.XGBClassifier(
-            scale_pos_weight=class_weights,
-            random_state=42,
-            eval_metric='logloss'
-        )
-        
         # 逻辑回归模型
-        print("训练逻辑回归模型...")
         self.lr_model = LogisticRegression(
             class_weight='balanced',
             random_state=42,
@@ -153,14 +137,6 @@ class FemaleFetusDiagnosisModel:
         )
         
         # 超参数网格
-        xgb_params = {
-            'max_depth': [3, 5, 7],
-            'learning_rate': [0.01, 0.1, 0.2],
-            'n_estimators': [100, 200, 300],
-            'reg_alpha': [0, 0.1, 1],
-            'reg_lambda': [0, 0.1, 1]
-        }
-        
         lr_params = {
             'C': [0.01, 0.1, 1, 10, 100],
             'penalty': ['l1', 'l2'],
@@ -169,16 +145,6 @@ class FemaleFetusDiagnosisModel:
         
         # 分层K折交叉验证
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        
-        # XGBoost网格搜索
-        print("XGBoost超参数调优...")
-        xgb_grid = GridSearchCV(
-            self.xgb_model, xgb_params, 
-            cv=skf, scoring='roc_auc', 
-            n_jobs=-1, verbose=1
-        )
-        xgb_grid.fit(X_scaled, self.y)
-        self.xgb_model = xgb_grid.best_estimator_
         
         # 逻辑回归网格搜索
         print("逻辑回归超参数调优...")
@@ -190,20 +156,18 @@ class FemaleFetusDiagnosisModel:
         lr_grid.fit(X_scaled, self.y)
         self.lr_model = lr_grid.best_estimator_
         
-        print(f"XGBoost最佳参数: {xgb_grid.best_params_}")
         print(f"逻辑回归最佳参数: {lr_grid.best_params_}")
+        print(f"逻辑回归最佳交叉验证AUC: {lr_grid.best_score_:.4f}")
         
         # 保存最佳参数
         best_params = {
-            'xgb_best_params': xgb_grid.best_params_,
             'lr_best_params': lr_grid.best_params_,
-            'xgb_best_score': xgb_grid.best_score_,
             'lr_best_score': lr_grid.best_score_
         }
         
-        pd.DataFrame([best_params]).to_csv(f"{self.output_path}/best_parameters.csv", index=False)
+        pd.DataFrame([best_params]).to_csv(f"{self.output_path}/lr_best_parameters.csv", index=False)
         
-        return self.xgb_model, self.lr_model
+        return self.lr_model
     
     def cross_validation_evaluation(self):
         """交叉验证评估"""
@@ -212,55 +176,48 @@ class FemaleFetusDiagnosisModel:
         X_scaled = self.scaler.transform(self.X)
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
         
-        models = {
-            'XGBoost': self.xgb_model,
-            'Logistic Regression': self.lr_model
+        auc_scores = []
+        f1_scores = []
+        precision_scores = []
+        recall_scores = []
+        accuracy_scores = []
+        
+        print("评估逻辑回归模型...")
+        
+        for train_idx, val_idx in skf.split(X_scaled, self.y):
+            X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
+            y_train, y_val = self.y.iloc[train_idx], self.y.iloc[val_idx]
+            
+            # 训练模型
+            self.lr_model.fit(X_train, y_train)
+            
+            # 预测
+            y_pred_proba = self.lr_model.predict_proba(X_val)[:, 1]
+            y_pred = self.lr_model.predict(X_val)
+            
+            # 计算指标
+            auc_scores.append(roc_auc_score(y_val, y_pred_proba))
+            f1_scores.append(f1_score(y_val, y_pred))
+            precision_scores.append(precision_score(y_val, y_pred))
+            recall_scores.append(recall_score(y_val, y_pred))
+            accuracy_scores.append(accuracy_score(y_val, y_pred))
+        
+        cv_results = {
+            'AUC_mean': np.mean(auc_scores),
+            'AUC_std': np.std(auc_scores),
+            'F1_mean': np.mean(f1_scores),
+            'F1_std': np.std(f1_scores),
+            'Precision_mean': np.mean(precision_scores),
+            'Precision_std': np.std(precision_scores),
+            'Recall_mean': np.mean(recall_scores),
+            'Recall_std': np.std(recall_scores),
+            'Accuracy_mean': np.mean(accuracy_scores),
+            'Accuracy_std': np.std(accuracy_scores)
         }
         
-        cv_results = {}
-        
-        for name, model in models.items():
-            print(f"评估 {name}...")
-            
-            auc_scores = []
-            f1_scores = []
-            precision_scores = []
-            recall_scores = []
-            
-            for train_idx, val_idx in skf.split(X_scaled, self.y):
-                X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
-                y_train, y_val = self.y.iloc[train_idx], self.y.iloc[val_idx]
-                
-                # 训练模型
-                model.fit(X_train, y_train)
-                
-                # 预测
-                y_pred_proba = model.predict_proba(X_val)[:, 1]
-                y_pred = model.predict(X_val)
-                
-                # 计算指标
-                auc_scores.append(roc_auc_score(y_val, y_pred_proba))
-                f1_scores.append(f1_score(y_val, y_pred))
-                
-                # 计算精确率和召回率
-                from sklearn.metrics import precision_score, recall_score
-                precision_scores.append(precision_score(y_val, y_pred))
-                recall_scores.append(recall_score(y_val, y_pred))
-            
-            cv_results[name] = {
-                'AUC_mean': np.mean(auc_scores),
-                'AUC_std': np.std(auc_scores),
-                'F1_mean': np.mean(f1_scores),
-                'F1_std': np.std(f1_scores),
-                'Precision_mean': np.mean(precision_scores),
-                'Precision_std': np.std(precision_scores),
-                'Recall_mean': np.mean(recall_scores),
-                'Recall_std': np.std(recall_scores)
-            }
-        
         # 保存交叉验证结果
-        cv_df = pd.DataFrame(cv_results).T
-        cv_df.to_csv(f"{self.output_path}/cross_validation_results.csv")
+        cv_df = pd.DataFrame([cv_results], index=['Logistic Regression'])
+        cv_df.to_csv(f"{self.output_path}/lr_cross_validation_results.csv")
         
         print("交叉验证结果:")
         print(cv_df)
@@ -275,125 +232,77 @@ class FemaleFetusDiagnosisModel:
         # 在全部数据上重新训练最终模型
         X_scaled = self.scaler.fit_transform(self.X)
         
-        self.xgb_model.fit(X_scaled, self.y)
         self.lr_model.fit(X_scaled, self.y)
         
         # 预测
-        xgb_pred_proba = self.xgb_model.predict_proba(X_scaled)[:, 1]
         lr_pred_proba = self.lr_model.predict_proba(X_scaled)[:, 1]
-        
-        # 计算预测结果（使用0.5阈值）
-        xgb_pred = (xgb_pred_proba >= 0.5).astype(int)
         lr_pred = (lr_pred_proba >= 0.5).astype(int)
         
-        # 计算各种评估指标
-        from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+        # 计算评估指标
+        auc = roc_auc_score(self.y, lr_pred_proba)
+        precision = precision_score(self.y, lr_pred)
+        recall = recall_score(self.y, lr_pred)
+        f1 = f1_score(self.y, lr_pred)
+        accuracy = accuracy_score(self.y, lr_pred)
         
-        # XGBoost指标
-        xgb_auc = roc_auc_score(self.y, xgb_pred_proba)
-        xgb_precision = precision_score(self.y, xgb_pred)
-        xgb_recall = recall_score(self.y, xgb_pred)
-        xgb_f1 = f1_score(self.y, xgb_pred)
-        xgb_accuracy = accuracy_score(self.y, xgb_pred)
-        
-        # 逻辑回归指标
-        lr_auc = roc_auc_score(self.y, lr_pred_proba)
-        lr_precision = precision_score(self.y, lr_pred)
-        lr_recall = recall_score(self.y, lr_pred)
-        lr_f1 = f1_score(self.y, lr_pred)
-        lr_accuracy = accuracy_score(self.y, lr_pred)
-        
-        print("=" * 50)
-        print("最终模型评估结果 (阈值=0.5)")
-        print("=" * 50)
-        print(f"XGBoost:")
-        print(f"  AUC: {xgb_auc:.4f}")
-        print(f"  精确率: {xgb_precision:.4f}")
-        print(f"  召回率: {xgb_recall:.4f}")
-        print(f"  F1分数: {xgb_f1:.4f}")
-        print(f"  准确率: {xgb_accuracy:.4f}")
-        print()
-        print(f"逻辑回归:")
-        print(f"  AUC: {lr_auc:.4f}")
-        print(f"  精确率: {lr_precision:.4f}")
-        print(f"  召回率: {lr_recall:.4f}")
-        print(f"  F1分数: {lr_f1:.4f}")
-        print(f"  准确率: {lr_accuracy:.4f}")
-        print("=" * 50)
-        
-        # 选择最佳模型（基于AUC）
-        if xgb_auc >= lr_auc:
-            self.best_model = self.xgb_model
-            self.best_model_name = 'XGBoost'
-            self.best_pred_proba = xgb_pred_proba
-            self.best_metrics = {
-                'AUC': xgb_auc, 'Precision': xgb_precision, 
-                'Recall': xgb_recall, 'F1': xgb_f1, 'Accuracy': xgb_accuracy
-            }
-        else:
-            self.best_model = self.lr_model
-            self.best_model_name = 'Logistic Regression'
-            self.best_pred_proba = lr_pred_proba
-            self.best_metrics = {
-                'AUC': lr_auc, 'Precision': lr_precision, 
-                'Recall': lr_recall, 'F1': lr_f1, 'Accuracy': lr_accuracy
-            }
-        
-        print(f"最佳模型: {self.best_model_name}")
+        print("=" * 60)
+        print("逻辑回归最终模型评估结果 (阈值=0.5)")
+        print("=" * 60)
+        print(f"AUC: {auc:.4f}")
+        print(f"精确率: {precision:.4f}")
+        print(f"召回率: {recall:.4f}")
+        print(f"F1分数: {f1:.4f}")
+        print(f"准确率: {accuracy:.4f}")
+        print("=" * 60)
         
         # 保存最终评估结果
-        final_results = pd.DataFrame({
-            'XGBoost': [xgb_auc, xgb_precision, xgb_recall, xgb_f1, xgb_accuracy],
-            'Logistic_Regression': [lr_auc, lr_precision, lr_recall, lr_f1, lr_accuracy]
-        }, index=['AUC', 'Precision', 'Recall', 'F1_Score', 'Accuracy'])
+        final_results = {
+            'Model': 'Logistic Regression',
+            'AUC': auc,
+            'Precision': precision,
+            'Recall': recall,
+            'F1_Score': f1,
+            'Accuracy': accuracy
+        }
         
-        final_results.to_csv(f"{self.output_path}/final_model_evaluation.csv")
+        pd.DataFrame([final_results]).to_csv(f"{self.output_path}/lr_final_evaluation.csv", index=False)
         
         # 绘制ROC曲线
-        self.plot_roc_curves(xgb_pred_proba, lr_pred_proba)
+        self.plot_roc_curve(lr_pred_proba)
         
         # 绘制PR曲线
-        self.plot_pr_curves(xgb_pred_proba, lr_pred_proba)
+        self.plot_pr_curve(lr_pred_proba)
         
-        return self.best_model
+        return lr_pred_proba
     
-    def plot_roc_curves(self, xgb_pred_proba, lr_pred_proba):
+    def plot_roc_curve(self, pred_proba):
         """绘制ROC曲线"""
         plt.figure(figsize=(10, 8))
         
-        # XGBoost ROC
-        fpr_xgb, tpr_xgb, _ = roc_curve(self.y, xgb_pred_proba)
-        auc_xgb = roc_auc_score(self.y, xgb_pred_proba)
-        plt.plot(fpr_xgb, tpr_xgb, label=f'XGBoost (AUC = {auc_xgb:.3f})', linewidth=2)
-        
         # 逻辑回归 ROC
-        fpr_lr, tpr_lr, _ = roc_curve(self.y, lr_pred_proba)
-        auc_lr = roc_auc_score(self.y, lr_pred_proba)
-        plt.plot(fpr_lr, tpr_lr, label=f'Logistic Regression (AUC = {auc_lr:.3f})', linewidth=2)
+        fpr, tpr, _ = roc_curve(self.y, pred_proba)
+        auc = roc_auc_score(self.y, pred_proba)
+        plt.plot(fpr, tpr, label=f'逻辑回归 (AUC = {auc:.3f})', linewidth=2, color='blue')
         
         # 对角线
         plt.plot([0, 1], [0, 1], 'k--', label='随机分类器', alpha=0.5)
         
         plt.xlabel('假正率 (1 - 特异性)')
         plt.ylabel('真正率 (灵敏度)')
-        plt.title('ROC曲线比较')
+        plt.title('逻辑回归 ROC曲线')
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(f"{self.output_path}/roc_curves.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{self.output_path}/lr_roc_curve.png", dpi=300, bbox_inches='tight')
         plt.close()
     
-    def plot_pr_curves(self, xgb_pred_proba, lr_pred_proba):
+    def plot_pr_curve(self, pred_proba):
         """绘制PR曲线"""
         plt.figure(figsize=(10, 8))
         
-        # XGBoost PR
-        precision_xgb, recall_xgb, _ = precision_recall_curve(self.y, xgb_pred_proba)
-        plt.plot(recall_xgb, precision_xgb, label='XGBoost', linewidth=2)
-        
         # 逻辑回归 PR
-        precision_lr, recall_lr, _ = precision_recall_curve(self.y, lr_pred_proba)
-        plt.plot(recall_lr, precision_lr, label='Logistic Regression', linewidth=2)
+        precision, recall, _ = precision_recall_curve(self.y, pred_proba)
+        plt.plot(recall, precision, label='逻辑回归', linewidth=2, color='blue')
         
         # 基线
         baseline = self.y.mean()
@@ -401,22 +310,19 @@ class FemaleFetusDiagnosisModel:
         
         plt.xlabel('召回率 (灵敏度)')
         plt.ylabel('精确率')
-        plt.title('精确率-召回率曲线')
+        plt.title('逻辑回归 精确率-召回率曲线')
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(f"{self.output_path}/pr_curves.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{self.output_path}/lr_pr_curve.png", dpi=300, bbox_inches='tight')
         plt.close()
     
-    def optimize_thresholds(self):
+    def optimize_thresholds(self, pred_proba):
         """优化阈值"""
         print("\n优化决策阈值...")
         
-        # 使用最佳模型的预测概率
-        pred_proba = self.best_pred_proba
-        
         # 计算不同阈值下的性能
-        thresholds = np.arange(0.1, 0.9, 0.01)
+        thresholds = np.arange(0.05, 0.95, 0.01)
         results = []
         
         for threshold in thresholds:
@@ -440,9 +346,14 @@ class FemaleFetusDiagnosisModel:
             })
         
         results_df = pd.DataFrame(results)
-        results_df.to_csv(f"{self.output_path}/threshold_analysis.csv", index=False)
+        results_df.to_csv(f"{self.output_path}/lr_threshold_analysis.csv", index=False)
         
         # 寻找最优阈值
+        # 1. F1分数最高的阈值
+        best_f1_idx = results_df['f1_score'].idxmax()
+        optimal_f1_threshold = results_df.loc[best_f1_idx, 'threshold']
+        
+        # 2. 基于临床需求的阈值
         # 低风险阈值：95%灵敏度
         high_sensitivity_idx = results_df[results_df['sensitivity'] >= 0.95].index
         if len(high_sensitivity_idx) > 0:
@@ -453,17 +364,40 @@ class FemaleFetusDiagnosisModel:
         # 高风险阈值：95%精确率
         high_precision_idx = results_df[results_df['precision'] >= 0.95].index
         if len(high_precision_idx) > 0:
-            dh = results_df.loc[high_precision_idx[-1], 'threshold']  # 取最后一个
+            dh = results_df.loc[high_precision_idx[-1], 'threshold']
         else:
             dh = 0.8
         
+        print(f"最优F1阈值: {optimal_f1_threshold:.3f}")
         print(f"低风险阈值 (DL): {dl:.3f}")
         print(f"高风险阈值 (DH): {dh:.3f}")
+        print(f"不确定区间: {dh-dl:.3f} ({(dh-dl)*100:.1f}%)")
         
         # 绘制阈值分析图
-        plt.figure(figsize=(12, 8))
+        self.plot_threshold_analysis(results_df, dl, dh, optimal_f1_threshold)
         
-        plt.subplot(2, 2, 1)
+        # 保存阈值决策规则
+        decision_rules = {
+            'optimal_f1_threshold': optimal_f1_threshold,
+            'low_risk_threshold': dl,
+            'high_risk_threshold': dh,
+            'uncertain_interval': dh - dl,
+            'decision_rules': {
+                'high_risk': f'D >= {dh:.3f} -> 高风险异常',
+                'low_risk': f'D < {dl:.3f} -> 低风险正常',
+                'uncertain': f'{dl:.3f} <= D < {dh:.3f} -> 结果不确定，建议复检'
+            }
+        }
+        
+        pd.DataFrame([decision_rules]).to_csv(f"{self.output_path}/lr_decision_rules.csv", index=False)
+        
+        return dl, dh, optimal_f1_threshold
+    
+    def plot_threshold_analysis(self, results_df, dl, dh, optimal_f1_threshold):
+        """绘制阈值分析图"""
+        plt.figure(figsize=(15, 10))
+        
+        plt.subplot(2, 3, 1)
         plt.plot(results_df['threshold'], results_df['sensitivity'], label='灵敏度', linewidth=2)
         plt.axhline(y=0.95, color='r', linestyle='--', alpha=0.5, label='95%目标')
         plt.axvline(x=dl, color='g', linestyle='--', alpha=0.5, label=f'DL={dl:.3f}')
@@ -473,7 +407,7 @@ class FemaleFetusDiagnosisModel:
         plt.legend()
         plt.grid(True, alpha=0.3)
         
-        plt.subplot(2, 2, 2)
+        plt.subplot(2, 3, 2)
         plt.plot(results_df['threshold'], results_df['precision'], label='精确率', linewidth=2)
         plt.axhline(y=0.95, color='r', linestyle='--', alpha=0.5, label='95%目标')
         plt.axvline(x=dh, color='g', linestyle='--', alpha=0.5, label=f'DH={dh:.3f}')
@@ -483,89 +417,128 @@ class FemaleFetusDiagnosisModel:
         plt.legend()
         plt.grid(True, alpha=0.3)
         
-        plt.subplot(2, 2, 3)
+        plt.subplot(2, 3, 3)
         plt.plot(results_df['threshold'], results_df['f1_score'], label='F1分数', linewidth=2)
+        plt.axvline(x=optimal_f1_threshold, color='orange', linestyle='--', alpha=0.7, label=f'最优={optimal_f1_threshold:.3f}')
         plt.xlabel('阈值')
         plt.ylabel('F1分数')
         plt.title('F1分数 vs 阈值')
         plt.legend()
         plt.grid(True, alpha=0.3)
         
-        plt.subplot(2, 2, 4)
+        plt.subplot(2, 3, 4)
         plt.plot(results_df['sensitivity'], results_df['precision'], linewidth=2)
         plt.xlabel('灵敏度')
         plt.ylabel('精确率')
         plt.title('精确率 vs 灵敏度')
         plt.grid(True, alpha=0.3)
         
+        plt.subplot(2, 3, 5)
+        plt.plot(results_df['threshold'], results_df['specificity'], label='特异性', linewidth=2)
+        plt.xlabel('阈值')
+        plt.ylabel('特异性')
+        plt.title('特异性 vs 阈值')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.subplot(2, 3, 6)
+        # 显示阈值区间
+        plt.bar(['低风险', '不确定', '高风险'], 
+                [dl, dh-dl, 1-dh], 
+                color=['green', 'orange', 'red'], alpha=0.7)
+        plt.ylabel('阈值区间')
+        plt.title('决策阈值分布')
+        plt.xticks(rotation=45)
+        
         plt.tight_layout()
-        plt.savefig(f"{self.output_path}/threshold_optimization.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{self.output_path}/lr_threshold_optimization.png", dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def analyze_feature_importance(self):
+        """分析特征重要性"""
+        print("\n分析特征重要性...")
+        
+        # 获取逻辑回归系数
+        coefficients = self.lr_model.coef_[0]
+        
+        # 创建特征重要性DataFrame
+        feature_importance = pd.DataFrame({
+            'feature': self.feature_names,
+            'coefficient': coefficients,
+            'abs_coefficient': np.abs(coefficients)
+        }).sort_values('abs_coefficient', ascending=False)
+        
+        # 保存特征重要性
+        feature_importance.to_csv(f"{self.output_path}/lr_feature_importance.csv", index=False)
+        
+        # 绘制特征重要性图
+        plt.figure(figsize=(12, 8))
+        top_features = feature_importance.head(10)
+        
+        colors = ['red' if x < 0 else 'blue' for x in top_features['coefficient']]
+        plt.barh(range(len(top_features)), top_features['coefficient'], color=colors, alpha=0.7)
+        plt.yticks(range(len(top_features)), top_features['feature'])
+        plt.xlabel('回归系数')
+        plt.title('逻辑回归特征重要性（回归系数）')
+        plt.grid(True, alpha=0.3)
+        
+        # 添加图例
+        plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+        plt.legend(['负系数（降低风险）', '正系数（增加风险）'], loc='lower right')
+        
+        plt.tight_layout()
+        plt.savefig(f"{self.output_path}/lr_feature_importance.png", dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 保存阈值决策规则
-        decision_rules = {
-            'low_risk_threshold': dl,
-            'high_risk_threshold': dh,
-            'decision_rules': {
-                'high_risk': f'D >= {dh:.3f} -> 高风险异常',
-                'low_risk': f'D < {dl:.3f} -> 低风险正常',
-                'uncertain': f'{dl:.3f} <= D < {dh:.3f} -> 结果不确定，建议复检'
-            }
-        }
-        
-        pd.DataFrame([decision_rules]).to_csv(f"{self.output_path}/decision_rules.csv", index=False)
-        
-        return dl, dh
+        print("特征重要性分析完成")
+        return feature_importance
     
     def generate_final_report(self):
         """生成最终报告"""
         print("\n生成最终报告...")
         
         report = f"""
-# 第四问：女胎异常判定模型报告
+# 第四问：女胎异常判定模型报告（逻辑回归专用版）
 
 ## 模型概述
-- 最佳模型: {self.best_model_name}
+- 模型类型: 逻辑回归
 - 数据样本数: {len(self.y)}
 - 异常样本比例: {self.y.mean():.3f}
 - 特征数量: {len(self.feature_names)}
 
+## 模型优势
+1. **避免过拟合**：逻辑回归模型简单稳定，泛化能力强
+2. **可解释性强**：回归系数具有明确的生物学意义
+3. **计算效率高**：训练和预测速度快
+4. **类别不平衡处理**：使用class_weight='balanced'自动处理
+
 ## 交叉验证结果
+- AUC: {self.cv_results['AUC_mean']:.4f} ± {self.cv_results['AUC_std']:.4f}
+- F1分数: {self.cv_results['F1_mean']:.4f} ± {self.cv_results['F1_std']:.4f}
+- 精确率: {self.cv_results['Precision_mean']:.4f} ± {self.cv_results['Precision_std']:.4f}
+- 召回率: {self.cv_results['Recall_mean']:.4f} ± {self.cv_results['Recall_std']:.4f}
+- 准确率: {self.cv_results['Accuracy_mean']:.4f} ± {self.cv_results['Accuracy_std']:.4f}
+
+## 特征重要性分析
 """
         
-        for model_name, results in self.cv_results.items():
-            report += f"""
-### {model_name}
-- AUC: {results['AUC_mean']:.4f} ± {results['AUC_std']:.4f}
-- F1分数: {results['F1_mean']:.4f} ± {results['F1_std']:.4f}
-- 精确率: {results['Precision_mean']:.4f} ± {results['Precision_std']:.4f}
-- 召回率: {results['Recall_mean']:.4f} ± {results['Recall_std']:.4f}
-"""
-        
-        report += f"""
-## 特征重要性 (XGBoost)
-"""
-        
-        if hasattr(self.xgb_model, 'feature_importances_'):
-            feature_importance = pd.DataFrame({
-                'feature': self.feature_names,
-                'importance': self.xgb_model.feature_importances_
-            }).sort_values('importance', ascending=False)
-            
-            feature_importance.to_csv(f"{self.output_path}/feature_importance.csv", index=False)
-            
-            report += "\n".join([f"- {row['feature']}: {row['importance']:.4f}" 
+        # 读取特征重要性
+        try:
+            feature_importance = pd.read_csv(f"{self.output_path}/lr_feature_importance.csv")
+            report += "\n".join([f"- {row['feature']}: {row['coefficient']:.4f}" 
                                for _, row in feature_importance.head(10).iterrows()])
+        except:
+            report += "特征重要性分析未完成"
         
         # 保存报告
-        with open(f"{self.output_path}/model_report.md", 'w', encoding='utf-8') as f:
+        with open(f"{self.output_path}/lr_model_report.md", 'w', encoding='utf-8') as f:
             f.write(report)
         
         print("最终报告已生成")
     
     def run_complete_analysis(self):
         """运行完整分析流程"""
-        print("开始第四问完整分析...")
+        print("开始第四问逻辑回归专用分析...")
         
         # 1. 数据加载与预处理
         self.load_and_preprocess_data()
@@ -573,22 +546,25 @@ class FemaleFetusDiagnosisModel:
         # 2. 探索性数据分析
         self.exploratory_data_analysis()
         
-        # 3. 模型训练
-        self.train_models()
+        # 3. 训练逻辑回归模型
+        self.train_logistic_regression_model()
         
         # 4. 交叉验证评估
         self.cross_validation_evaluation()
         
         # 5. 最终模型评估
-        self.final_model_evaluation()
+        pred_proba = self.final_model_evaluation()
         
-        # 6. 阈值优化
-        self.optimize_thresholds()
+        # 6. 优化阈值
+        self.optimize_thresholds(pred_proba)
         
-        # 7. 生成最终报告
+        # 7. 分析特征重要性
+        self.analyze_feature_importance()
+        
+        # 8. 生成最终报告
         self.generate_final_report()
         
-        print("\n第四问分析完成！")
+        print("\n第四问逻辑回归专用分析完成！")
         print(f"所有结果已保存到: {self.output_path}")
 
 
@@ -598,8 +574,8 @@ def main():
     data_path = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/data/girl_output.csv"
     output_path = "/Users/torealu/Desktop/2025秋/数学建模/src/CUMCM/4"
     
-    # 创建模型实例
-    model = FemaleFetusDiagnosisModel(data_path, output_path)
+    # 创建逻辑回归模型实例
+    model = LogisticRegressionDiagnosisModel(data_path, output_path)
     
     # 运行完整分析
     model.run_complete_analysis()

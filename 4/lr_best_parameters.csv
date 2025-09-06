@@ -1,0 +1,2 @@
+lr_best_params,lr_best_score
+"{'C': 1, 'penalty': 'l1', 'solver': 'liblinear'}",0.7856701940035273
